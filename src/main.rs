@@ -98,14 +98,18 @@ struct Worktree {
     original_branch: Option<String>,
 }
 
-fn rate_color(pct: f64) -> String {
-    let s = format!("{:.0}%", pct);
+fn progress_bar(pct: f64) -> String {
+    const WIDTH: usize = 10;
+    let filled = ((pct / 100.0) * WIDTH as f64).round() as usize;
+    let filled = filled.min(WIDTH);
+    let empty = WIDTH - filled;
+    let bar: String = "█".repeat(filled) + &"░".repeat(empty);
     if pct >= 80.0 {
-        s.red().to_string()
+        bar.red().to_string()
     } else if pct >= 50.0 {
-        s.yellow().to_string()
+        bar.yellow().to_string()
     } else {
-        s.green().to_string()
+        bar.green().to_string()
     }
 }
 
@@ -157,13 +161,13 @@ fn main() {
     if five_hour.is_some() || seven_day.is_some() {
         let mut rate = String::from("rate ");
         if let Some(pct) = five_hour {
-            rate.push_str(&format!("5h:{}", rate_color(pct)));
+            rate.push_str(&format!("5h:{} {:.0}%", progress_bar(pct), pct));
         }
         if let Some(pct) = seven_day {
             if five_hour.is_some() {
                 rate.push(' ');
             }
-            rate.push_str(&format!("7d:{}", rate_color(pct)));
+            rate.push_str(&format!("7d:{} {:.0}%", progress_bar(pct), pct));
         }
         parts.push(rate);
     }
