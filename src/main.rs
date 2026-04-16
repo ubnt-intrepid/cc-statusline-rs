@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use std::io;
+use std::process::Command;
 
 use owo_colors::OwoColorize;
 use serde::Deserialize;
@@ -31,7 +32,8 @@ struct Model {
 #[derive(Debug, Deserialize)]
 struct Workspace {
     current_dir: Option<String>,
-    git_branch: Option<String>,
+    project_dir: Option<String>,
+    added_dirs: Option<Vec<String>>,
     git_worktree: Option<String>,
 }
 
@@ -118,7 +120,8 @@ fn main() {
     let status: StatusLine = serde_json::from_str(&input).unwrap_or_default();
 
     let sep = "|".dimmed();
-    let mut parts: Vec<String> = Vec::new();
+    let mut line1: Vec<String> = Vec::new();
+    let mut line2: Vec<String> = Vec::new();
 
     // 1. Model name
     let model = status
@@ -126,34 +129,37 @@ fn main() {
         .as_ref()
         .and_then(|m| m.display_name.as_deref())
         .unwrap_or("Claude");
-    parts.push(format!("{}", format!("[{}]", model).cyan()));
+    line1.push(format!("{}", format!("[{}]", model).cyan()));
 
     // 2. Basename of the project directory
     let dir = status
         .workspace
         .as_ref()
-        .and_then(|w| w.current_dir.as_deref())
+        .and_then(|w| w.project_dir.as_deref())
         .unwrap_or("?");
     let basename = dir.rsplit('/').next().unwrap_or(dir);
 
-    // 3. Git branch
-    let branch = status
-        .workspace
-        .as_ref()
-        .and_then(|w| w.git_branch.as_deref());
-    match branch {
-        Some(b) => parts.push(format!("{} ({})", basename.yellow(), b.green())),
-        None => parts.push(format!("{}", basename.yellow())),
+    // 3. Git branch (workspace.git_branch は存在しないため git コマンドで取得)
+    let branch = Command::new("git")
+        .args(["branch", "--show-current"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    match branch.as_deref() {
+        Some(b) => line1.push(format!("{} ({})", basename.yellow(), b.green())),
+        None => line1.push(format!("{}", basename.yellow())),
     }
 
     // 4. Context window usage
     let ctx_pct = status
         .context_window
         .as_ref()
-        .and_then(|c| c.used_percentage);
-    if let Some(pct) = ctx_pct {
-        parts.push(format!("ctx:{} {:.0}%", progress_bar(pct), pct));
-    }
+        .and_then(|c| c.used_percentage)
+        .unwrap_or(0.0);
+    line2.push(format!("ctx:{} {:.0}%", progress_bar(ctx_pct), ctx_pct));
 
     // 5. Rate limits (only available on Pro/Max plans)
     let five_hour = status
@@ -178,8 +184,11 @@ fn main() {
             }
             rate.push_str(&format!("7d:{} {:.0}%", progress_bar(pct), pct));
         }
-        parts.push(rate);
+        line2.push(rate);
     }
 
-    println!("{}", parts.join(&format!(" {} ", sep)));
+    println!("{}", line1.join(&format!(" {} ", sep)));
+    if !line2.is_empty() {
+        println!("{}", line2.join(&format!(" {} ", sep)));
+    }
 }
