@@ -146,7 +146,16 @@ fn main() {
         None => parts.push(format!("{}", basename.yellow())),
     }
 
-    // 4. Rate limits (only available on Pro/Max plans)
+    // 4. Context window usage
+    let ctx_pct = status
+        .context_window
+        .as_ref()
+        .and_then(|c| c.used_percentage);
+    if let Some(pct) = ctx_pct {
+        parts.push(format!("ctx:{} {:.0}%", progress_bar(pct), pct));
+    }
+
+    // 5. Rate limits (only available on Pro/Max plans)
     let five_hour = status
         .rate_limits
         .as_ref()
