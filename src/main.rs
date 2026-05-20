@@ -100,6 +100,16 @@ struct Worktree {
     original_branch: Option<String>,
 }
 
+fn format_tokens(n: u64) -> String {
+    if n >= 1_000_000 {
+        format!("{:.1}M", n as f64 / 1_000_000.0)
+    } else if n >= 1_000 {
+        format!("{:.0}k", n as f64 / 1_000.0)
+    } else {
+        format!("{}", n)
+    }
+}
+
 fn progress_bar(pct: f64) -> String {
     const WIDTH: usize = 10;
     let filled = ((pct / 100.0) * WIDTH as f64).round() as usize;
@@ -161,7 +171,29 @@ fn main() {
         .unwrap_or(0.0);
     line2.push(format!("ctx:{} {:.0}%", progress_bar(ctx_pct), ctx_pct));
 
-    // 5. Rate limits (only available on Pro/Max plans)
+    // 5. Token usage
+    let ctx = status.context_window.as_ref();
+    let total_in = ctx.and_then(|c| c.total_input_tokens);
+    let total_out = ctx.and_then(|c| c.total_output_tokens);
+    let cache_read = ctx.and_then(|c| c.current_usage.as_ref()).and_then(|u| u.cache_read_input_tokens);
+    let cache_write = ctx.and_then(|c| c.current_usage.as_ref()).and_then(|u| u.cache_creation_input_tokens);
+    if total_in.is_some() || total_out.is_some() {
+        let in_str = total_in.map(format_tokens).unwrap_or_else(|| "-".into());
+        let out_str = total_out.map(format_tokens).unwrap_or_else(|| "-".into());
+        line2.push(format!("tok: {}(in) {}(out)", in_str.cyan(), out_str.magenta()));
+    }
+    if cache_read.is_some() || cache_write.is_some() {
+        let mut cache = String::from("cache:");
+        if let Some(r) = cache_read {
+            cache.push_str(&format!(" {}(r)", format_tokens(r).green()));
+        }
+        if let Some(w) = cache_write {
+            cache.push_str(&format!(" {}(w)", format_tokens(w).yellow()));
+        }
+        line2.push(cache);
+    }
+
+    // 6. Rate limits (only available on Pro/Max plans)
     let five_hour = status
         .rate_limits
         .as_ref()
