@@ -110,28 +110,13 @@ fn format_tokens(n: u64) -> String {
     }
 }
 
-fn progress_bar(pct: f64) -> String {
-    const WIDTH: usize = 10;
-    let filled = ((pct / 100.0) * WIDTH as f64).round() as usize;
-    let filled = filled.min(WIDTH);
-    let empty = WIDTH - filled;
-    let bar: String = "█".repeat(filled) + &"░".repeat(empty);
-    if pct >= 80.0 {
-        bar.red().to_string()
-    } else if pct >= 50.0 {
-        bar.yellow().to_string()
-    } else {
-        bar.green().to_string()
-    }
-}
 
 fn main() {
     let input = io::read_to_string(io::stdin().lock()).unwrap_or_default();
     let status: StatusLine = serde_json::from_str(&input).unwrap_or_default();
 
     let sep = "|".dimmed();
-    let mut line1: Vec<String> = Vec::new();
-    let mut line2: Vec<String> = Vec::new();
+    let mut parts: Vec<String> = Vec::new();
 
     // 1. Model name
     let model = status
@@ -139,7 +124,7 @@ fn main() {
         .as_ref()
         .and_then(|m| m.display_name.as_deref())
         .unwrap_or("Claude");
-    line1.push(format!("{}", format!("[{}]", model).cyan()));
+    parts.push(format!("{}", format!("[{}]", model).cyan()));
 
     // 2. Basename of the project directory
     let dir = status
@@ -159,8 +144,8 @@ fn main() {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
     match branch.as_deref() {
-        Some(b) => line1.push(format!("{} ({})", basename.yellow(), b.green())),
-        None => line1.push(format!("{}", basename.yellow())),
+        Some(b) => parts.push(format!("{} ({})", basename.yellow(), b.green())),
+        None => parts.push(format!("{}", basename.yellow())),
     }
 
     // 4. Context window usage
@@ -169,7 +154,14 @@ fn main() {
         .as_ref()
         .and_then(|c| c.used_percentage)
         .unwrap_or(0.0);
-    line2.push(format!("ctx:{} {:.0}%", progress_bar(ctx_pct), ctx_pct));
+    let ctx_pct_str = if ctx_pct >= 80.0 {
+        format!("{:.0}%", ctx_pct).red().to_string()
+    } else if ctx_pct >= 50.0 {
+        format!("{:.0}%", ctx_pct).yellow().to_string()
+    } else {
+        format!("{:.0}%", ctx_pct).green().to_string()
+    };
+    parts.push(format!("ctx: {}", ctx_pct_str));
 
     // 5. Token usage
     let ctx = status.context_window.as_ref();
@@ -180,7 +172,7 @@ fn main() {
     if total_in.is_some() || total_out.is_some() {
         let in_str = total_in.map(format_tokens).unwrap_or_else(|| "-".into());
         let out_str = total_out.map(format_tokens).unwrap_or_else(|| "-".into());
-        line2.push(format!("tok: {}(in) {}(out)", in_str.cyan(), out_str.magenta()));
+        parts.push(format!("tok: {}(in) {}(out)", in_str.cyan(), out_str.magenta()));
     }
     if cache_read.is_some() || cache_write.is_some() {
         let mut cache = String::from("cache:");
@@ -190,7 +182,7 @@ fn main() {
         if let Some(w) = cache_write {
             cache.push_str(&format!(" {}(w)", format_tokens(w).yellow()));
         }
-        line2.push(cache);
+        parts.push(cache);
     }
 
     // 6. Rate limits (only available on Pro/Max plans)
@@ -206,21 +198,22 @@ fn main() {
         .and_then(|l| l.used_percentage);
 
     if five_hour.is_some() || seven_day.is_some() {
-        let mut rate = String::from("rate ");
-        if let Some(pct) = five_hour {
-            rate.push_str(&format!("5h:{} {:.0}%", progress_bar(pct), pct));
-        }
-        if let Some(pct) = seven_day {
-            if five_hour.is_some() {
-                rate.push(' ');
+        let mut items: Vec<String> = Vec::new();
+        for (pct, label) in [(five_hour, "5h"), (seven_day, "7d")] {
+            if let Some(p) = pct {
+                let pct_str = format!("{:.0}%", p);
+                let colored = if p >= 80.0 {
+                    pct_str.red().to_string()
+                } else if p >= 50.0 {
+                    pct_str.yellow().to_string()
+                } else {
+                    pct_str.green().to_string()
+                };
+                items.push(format!("{}({})", colored, label));
             }
-            rate.push_str(&format!("7d:{} {:.0}%", progress_bar(pct), pct));
         }
-        line2.push(rate);
+        parts.push(format!("rate: {}", items.join(" ")));
     }
 
-    println!("{}", line1.join(&format!(" {} ", sep)));
-    if !line2.is_empty() {
-        println!("{}", line2.join(&format!(" {} ", sep)));
-    }
+    println!("{}", parts.join(&format!(" {} ", sep)));
 }
